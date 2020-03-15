@@ -55,12 +55,22 @@ static int fib_release(struct inode *inode, struct file *file)
 }
 
 /* calculate the fibonacci number at given offset */
+static long long fib_time_proxy(long long k)
+{
+    ktime_t kt = ktime_get();
+    long long result = fib_sequence(k);
+    unsigned int ns = ktime_to_ns(ktime_sub(ktime_get(), kt));
+    printk(KERN_INFO "%lld:\t%u ns\n", k, ns);
+
+    return result;
+}
+
 static ssize_t fib_read(struct file *file,
                         char *buf,
                         size_t size,
                         loff_t *offset)
 {
-    return (ssize_t) fib_sequence(*offset);
+    return (ssize_t) fib_time_proxy(*offset);
 }
 
 /* write operation is skipped */
