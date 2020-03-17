@@ -6,6 +6,9 @@
 #include <unistd.h>
 
 #define FIB_DEV "/dev/fibonacci"
+#define FIB_DP 0
+#define FIB_DOUB 1
+#define FIB_DOUB_CLZ 2
 
 int main()
 {
@@ -13,6 +16,7 @@ int main()
 
     char buf[1];
     char write_buf[] = "testing writing";
+    char method[1];
     int offset = 100; /* TODO: try test something bigger than the limit */
 
     int fd = open(FIB_DEV, O_RDWR);
@@ -26,6 +30,8 @@ int main()
         printf("Writing to " FIB_DEV ", returned the sequence %lld\n", sz);
     }
 
+    method[0] = FIB_DOUB_CLZ;
+    sz = write(fd, method, 1);
     for (int i = 0; i <= offset; i++) {
         lseek(fd, i, SEEK_SET);
         sz = read(fd, buf, 1);

@@ -6,6 +6,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/uaccess.h>
 
 MODULE_LICENSE("Dual MIT/GPL");
 MODULE_AUTHOR("National Cheng Kung University, Taiwan");
@@ -23,8 +24,9 @@ static dev_t fib_dev = 0;
 static struct cdev *fib_cdev;
 static struct class *fib_class;
 static DEFINE_MUTEX(fib_mutex);
+long long (*fib_sequence)(long long);
 
-static long long fib_sequence(long long k)
+static long long fib_dp(long long k)
 {
     /* FIXME: use clz/ctz and fast algorithms to speed up */
     long long f[k + 2];
@@ -37,6 +39,44 @@ static long long fib_sequence(long long k)
     }
 
     return f[k];
+}
+
+static long long fib_double(long long k)
+{
+    if (k <= 1)
+        return k;
+    long long a = 0, b = 1;
+    for (int i = 31; i >= 0; --i) {
+        long long t1 = a * (b * 2 - a);
+        long long t2 = a * a + b * b;
+        a = t1;
+        b = t2;
+        if (k & (1ull << i)) {
+            t1 = a + b;
+            a = b;
+            b = t1;
+        }
+    }
+    return a;
+}
+
+static long long fib_double_clz(long long k)
+{
+    if (k <= 1)
+        return k;
+    long long a = 0, b = 1;
+    for (int i = 31 - __builtin_clz(k); i >= 0; --i) {
+        long long t1 = a * (b * 2 - a);
+        long long t2 = a * a + b * b;
+        a = t1;
+        b = t2;
+        if (k & (1ull << i)) {
+            t1 = a + b;
+            a = b;
+            b = t1;
+        }
+    }
+    return a;
 }
 
 static int fib_open(struct inode *inode, struct file *file)
@@ -79,6 +119,22 @@ static ssize_t fib_write(struct file *file,
                          size_t size,
                          loff_t *offset)
 {
+    char tmp_buf[1];
+    copy_from_user(tmp_buf, buf, 1);
+    switch (tmp_buf[0]) {
+    case 0: /* FIB_DP */
+        fib_sequence = fib_dp;
+        printk(KERN_ALERT "choosing dp\n");
+        break;
+    case 1: /* FIB_DOUB */
+        fib_sequence = fib_double;
+        printk(KERN_ALERT "choosing double\n");
+        break;
+    case 2: /* FIB_DOUB_CLZ */
+        fib_sequence = fib_double_clz;
+        printk(KERN_ALERT "choosing double clz\n");
+        break;
+    }
     return 1;
 }
 
