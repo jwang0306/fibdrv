@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/uaccess.h>
+#include "bn.h"
 
 MODULE_LICENSE("Dual MIT/GPL");
 MODULE_AUTHOR("National Cheng Kung University, Taiwan");
@@ -18,41 +19,50 @@ MODULE_VERSION("0.1");
 /* MAX_LENGTH is set to 92 because
  * ssize_t can't fit the number > 92
  */
-#define MAX_LENGTH 92
+#define MAX_LENGTH 150
 
 static dev_t fib_dev = 0;
 static struct cdev *fib_cdev;
 static struct class *fib_class;
 static DEFINE_MUTEX(fib_mutex);
-long long (*fib_sequence)(long long);
+bn_t (*fib_sequence)(long long);
 
-static long long fib_dp(long long k)
+static bn_t fib_dp(long long k)
 {
     /* FIXME: use clz/ctz and fast algorithms to speed up */
-    long long f[k + 2];
+    bn_t f[k + 2];
 
-    f[0] = 0;
-    f[1] = 1;
+    bn_init(&f[0], 0);
+    bn_init(&f[1], 1);
 
     for (int i = 2; i <= k; i++) {
-        f[i] = f[i - 1] + f[i - 2];
+        bn_add(&f[i], &f[i - 1], &f[i - 2]);
     }
 
     return f[k];
 }
 
-static long long fib_double(long long k)
+static bn_t fib_double(long long k)
 {
-    if (k <= 1)
-        return k;
-    long long a = 0, b = 1;
+    bn_t a, b;
+    bn_init(&a, 0);
+    bn_init(&b, 1);
+    if (k == 0)
+        return a;
+    if (k == 1)
+        return b;
     for (int i = 31; i >= 0; --i) {
-        long long t1 = a * (b * 2 - a);
-        long long t2 = a * a + b * b;
+        bn_t t1, t2, tmp1, tmp2;
+        bn_add(&tmp1, &b, &b);
+        bn_sub(&tmp2, &tmp1, &a);
+        bn_mul(&t1, &a, &tmp2);
+        bn_mul(&tmp1, &a, &a);
+        bn_mul(&tmp2, &b, &b);
+        bn_add(&t2, &tmp1, &tmp2);
         a = t1;
         b = t2;
         if (k & (1ull << i)) {
-            t1 = a + b;
+            bn_add(&t1, &a, &b);
             a = b;
             b = t1;
         }
@@ -60,18 +70,27 @@ static long long fib_double(long long k)
     return a;
 }
 
-static long long fib_double_clz(long long k)
+static bn_t fib_double_clz(long long k)
 {
-    if (k <= 1)
-        return k;
-    long long a = 0, b = 1;
+    bn_t a, b;
+    bn_init(&a, 0);
+    bn_init(&b, 1);
+    if (k == 0)
+        return a;
+    if (k == 1)
+        return b;
     for (int i = 31 - __builtin_clz(k); i >= 0; --i) {
-        long long t1 = a * (b * 2 - a);
-        long long t2 = a * a + b * b;
+        bn_t t1, t2, tmp1, tmp2;
+        bn_add(&tmp1, &b, &b);
+        bn_sub(&tmp2, &tmp1, &a);
+        bn_mul(&t1, &a, &tmp2);
+        bn_mul(&tmp1, &a, &a);
+        bn_mul(&tmp2, &b, &b);
+        bn_add(&t2, &tmp1, &tmp2);
         a = t1;
         b = t2;
         if (k & (1ull << i)) {
-            t1 = a + b;
+            bn_add(&t1, &a, &b);
             a = b;
             b = t1;
         }
@@ -95,22 +114,22 @@ static int fib_release(struct inode *inode, struct file *file)
 }
 
 /* calculate the fibonacci number at given offset */
-static long long fib_time_proxy(long long k)
-{
-    ktime_t kt = ktime_get();
-    long long result = fib_sequence(k);
-    unsigned int ns = ktime_to_ns(ktime_sub(ktime_get(), kt));
-    printk(KERN_INFO "%lld:\t%u ns\n", k, ns);
-
-    return result;
-}
-
 static ssize_t fib_read(struct file *file,
                         char *buf,
                         size_t size,
                         loff_t *offset)
 {
-    return (ssize_t) fib_time_proxy(*offset);
+    ktime_t kt = ktime_get();
+    bn_t result = fib_sequence(*offset);
+    unsigned int ns = ktime_to_ns(ktime_sub(ktime_get(), kt));
+
+    char tmp[MAX_DIGITS] = {0};
+    for (int i = 0, index = 0; i < result.num_digits; ++i)
+        index += snprintf(&tmp[index], MAX_DIGITS - index, "%d",
+                          result.digits[result.num_digits - i - 1]);
+    copy_to_user(buf, tmp, MAX_DIGITS);
+
+    return ns;
 }
 
 /* write operation is skipped */

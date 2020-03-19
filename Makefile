@@ -1,7 +1,8 @@
 CONFIG_MODULE_SIG = n
-TARGET_MODULE := fibdrv
+TARGET_MODULE := fibdrvmodule
 
 obj-m := $(TARGET_MODULE).o
+$(TARGET_MODULE)-objs := bn.o fibdrv.o
 ccflags-y := -std=gnu99 -Wno-declaration-after-statement
 
 KDIR := /lib/modules/$(shell uname -r)/build
@@ -35,7 +36,7 @@ pass = $(PRINTF) "$(PASS_COLOR)$1 Passed [-]$(NO_COLOR)\n"
 check: all
 	$(MAKE) unload
 	$(MAKE) load
-	sudo ./client > out
+	sudo taskset 0x1 ./client > out
 	$(MAKE) unload
 	@diff -u out scripts/expected.txt && $(call pass)
 	@scripts/verify.py
